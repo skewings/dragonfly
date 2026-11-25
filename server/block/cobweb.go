@@ -17,9 +17,15 @@ type Cobweb struct {
 func (Cobweb) Cobweb() {}
 
 // EntityInside slows the entity's velocity and resets its fall distance while it is inside the cobweb.
+// Players are not slowed server-side: their client already applies cobweb movement, and setting a
+// player's velocity sends it a motion packet every tick, which pins them in the web and desyncs
+// their position.
 func (Cobweb) EntityInside(_ cube.Pos, _ *world.Tx, e world.Entity) {
 	if fallEntity, ok := e.(fallDistanceEntity); ok {
 		fallEntity.ResetFallDistance()
+	}
+	if _, player := e.(interface{ GameMode() world.GameMode }); player {
+		return
 	}
 	if v, ok := e.(velocityEntity); ok {
 		vel := v.Velocity()
