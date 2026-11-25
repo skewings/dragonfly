@@ -14,8 +14,6 @@ import (
 )
 
 const (
-	directMeleeForce                = 0.4
-	directMeleeVerticalLimit        = 0.4
 	directMeleeCooldownTicks        = 10
 	directMeleeSpawnProtectionTicks = 60
 	directMeleeReach                = 8.0
@@ -106,47 +104,17 @@ func (state *directMeleeState) resumeAt(current int64) {
 	state.lastTick, state.tickInitialised = current, true
 }
 
-// meleeKnockBackMotion calculates direct-melee motion. Keep the reciprocal and multiplication operations in this
-// order so protocol float conversion starts from the expected value.
-func meleeKnockBackMotion(victim, attacker, previous mgl64.Vec3, force, verticalLimit float64) (mgl64.Vec3, bool) {
-	x, z := victim[0]-attacker[0], victim[2]-attacker[2]
-	f := math.Sqrt(x*x + z*z)
-	if f <= 0 {
-		return mgl64.Vec3{}, false
-	}
-	f = 1 / f
-
-	motion := previous.Mul(0.5)
-	motion[0] += x * f * force
-	motion[1] += force
-	motion[2] += z * f * force
-	if motion[1] > verticalLimit {
-		motion[1] = verticalLimit
-	}
-	return motion, true
+// KnockBackProjectile applies motion for an already accepted projectile hit
+// using the standard knockback calculation, including armour resistance. The
+// direction follows the projectile's flight.
+func (p *Player) KnockBackProjectile(_ entity.ProjectileDamageSource, velocity mgl64.Vec3, force, height float64) {
+	p.KnockBack(p.Position().Sub(velocity), force, height)
 }
 
-// KnockBackProjectile applies motion for an already accepted projectile hit.
-// Player-owned snowballs use the direct PvP melee calculation. The direction
-// still follows the projectile's flight; other projectiles retain their normal
-// force, height, and armour resistance handling.
-func (p *Player) KnockBackProjectile(source entity.ProjectileDamageSource, velocity mgl64.Vec3, force, height float64) {
-	if p.Dead() || !p.GameMode().AllowsTakingDamage() {
-		return
-	}
-	origin := p.Position().Sub(velocity)
-	_, playerOwned := source.Owner.(*Player)
-	if playerOwned && source.Projectile != nil && source.Projectile.H().Type() == entity.SnowballType {
-		p.knockBackMelee(origin, directMeleeForce, directMeleeVerticalLimit)
-		return
-	}
+// knockBackMelee applies the standard Dragonfly knockback for an accepted
+// player melee hit.
+func (p *Player) knockBackMelee(origin mgl64.Vec3, force, height float64) {
 	p.knockBack(origin, force, height)
-}
-
-func (p *Player) knockBackMelee(origin mgl64.Vec3, force, verticalLimit float64) {
-	if motion, ok := meleeKnockBackMotion(p.Position(), origin, p.directMelee.motion, force, verticalLimit); ok {
-		p.SetVelocity(motion)
-	}
 }
 
 func (p *Player) canMeleeInteract(target *Player) bool {
@@ -207,10 +175,16 @@ func (p *Player) attackPlayer(target *Player) bool {
 		return false
 	}
 
-	force, verticalLimit := directMeleeForce, directMeleeVerticalLimit
+	force, height := 0.45, 0.3608
+	mainHand, _ := p.HeldItems()
+	if knockback, ok := mainHand.Enchantment(enchantment.Knockback); ok {
+		inc := enchantment.Knockback.Force(knockback.Level())
+		force += inc
+		height += inc
+	}
 	critical := p.meleeCritical()
 	ctx := NewEventContext(p.tx, p)
-	if p.Handler().HandleAttackEntity(ctx, target, &force, &verticalLimit, &critical); ctx.Cancelled() {
+	if p.Handler().HandleAttackEntity(ctx, target, &force, &height, &critical); ctx.Cancelled() {
 		p.SwingArm()
 		p.tx.PlaySound(soundPos, sound.Attack{})
 		return false
@@ -253,7 +227,7 @@ func (p *Player) attackPlayer(target *Player) bool {
 			}
 		}
 	}
-	result := target.hurtByPlayerMeleeWindow(damage, baseDamage, p, force, verticalLimit, policy, fresh, critical)
+	result := target.hurtByPlayerMeleeWindow(damage, baseDamage, p, force, height, policy, fresh, critical)
 	if result.knockbackOnly {
 		p.SwingArm()
 		return result.accepted
@@ -291,15 +265,15 @@ type playerMeleeHurtResult struct {
 	knockbackOnly bool
 }
 
-func (p *Player) hurtByPlayerMelee(damage, baseDamage float64, attacker *Player, force, verticalLimit float64) playerMeleeHurtResult {
-	return p.hurtByPlayerMeleePolicy(damage, baseDamage, attacker, force, verticalLimit, p.hitPolicy(entity.AttackDamageSource{Attacker: attacker}))
+func (p *Player) hurtByPlayerMelee(damage, baseDamage float64, attacker *Player, force, height float64) playerMeleeHurtResult {
+	return p.hurtByPlayerMeleePolicy(damage, baseDamage, attacker, force, height, p.hitPolicy(entity.AttackDamageSource{Attacker: attacker}))
 }
 
-func (p *Player) hurtByPlayerMeleePolicy(damage, baseDamage float64, attacker *Player, force, verticalLimit float64, policy HitPolicy) playerMeleeHurtResult {
-	return p.hurtByPlayerMeleeWindow(damage, baseDamage, attacker, force, verticalLimit, policy, false, false)
+func (p *Player) hurtByPlayerMeleePolicy(damage, baseDamage float64, attacker *Player, force, height float64, policy HitPolicy) playerMeleeHurtResult {
+	return p.hurtByPlayerMeleeWindow(damage, baseDamage, attacker, force, height, policy, false, false)
 }
 
-func (p *Player) hurtByPlayerMeleeWindow(damage, baseDamage float64, attacker *Player, force, verticalLimit float64, policy HitPolicy, fresh, critical bool) playerMeleeHurtResult {
+func (p *Player) hurtByPlayerMeleeWindow(damage, baseDamage float64, attacker *Player, force, height float64, policy HitPolicy, fresh, critical bool) playerMeleeHurtResult {
 	if policy == HitBlocked {
 		return playerMeleeHurtResult{}
 	}
@@ -311,7 +285,7 @@ func (p *Player) hurtByPlayerMeleeWindow(damage, baseDamage float64, attacker *P
 		}
 		p.motionMelee.commit(decision, baseDamage)
 		if decision == directMeleeCold {
-			p.knockBackMelee(attacker.Position(), force, verticalLimit)
+			p.knockBackMelee(attacker.Position(), force, height)
 		}
 		result.accepted = true
 		return result
@@ -337,7 +311,7 @@ func (p *Player) hurtByPlayerMeleeWindow(damage, baseDamage float64, attacker *P
 
 	p.directMelee.commit(decision, baseDamage)
 	if decision == directMeleeCold {
-		p.knockBackMelee(attacker.Position(), force, verticalLimit)
+		p.knockBackMelee(attacker.Position(), force, height)
 		if !p.Dead() {
 			for _, viewer := range p.viewers() {
 				viewer.ViewEntityAction(p, entity.HurtAction{})

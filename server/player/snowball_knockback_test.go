@@ -9,15 +9,16 @@ import (
 	"github.com/go-gl/mathgl/mgl64"
 )
 
-func TestSnowballHitUsesPlayerMeleeKnockBack(t *testing.T) {
+func TestSnowballHitUsesGenericKnockBack(t *testing.T) {
+	want := mgl64.Vec3{0.45, 0.3608, 0}
 	for _, test := range []struct {
 		name     string
 		previous mgl64.Vec3
 		want     mgl64.Vec3
 	}{
-		{"stationary", mgl64.Vec3{}, mgl64.Vec3{0.4, 0.4, 0}},
-		{"blend previous motion", mgl64.Vec3{0.2, -0.2, 0.4}, mgl64.Vec3{0.5, 0.3, 0.2}},
-		{"cap upward motion", mgl64.Vec3{0, 0.8, 0}, mgl64.Vec3{0.4, 0.4, 0}},
+		{"stationary", mgl64.Vec3{}, want},
+		{"replaces previous motion", mgl64.Vec3{0.2, -0.2, 0.4}, want},
+		{"replaces upward motion", mgl64.Vec3{0, 0.8, 0}, want},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			withProjectileKnockBackPlayers(t, func(tx *world.Tx, owner, victim *Player) {

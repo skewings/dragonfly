@@ -134,9 +134,12 @@ func TestSnowballAndMeleeHaveIndependentCooldowns(t *testing.T) {
 					melee()
 					snowball()
 				}
-				// Both accepted impacts blend the previous motion, using the same
-				// knockback calculation as two otherwise eligible melee hits.
-				wantMotion := mgl64.Vec3{0.6, 0.4, 0}
+				// Standard knockback replaces the previous motion, so the last
+				// accepted impact decides the final velocity.
+				wantMotion := mgl64.Vec3{0.45, 0.3608, 0}
+				if snowballFirst {
+					wantMotion = mgl64.Vec3{0.4, 0.4, 0}
+				}
 				if victim.Health() != 13 || !victim.Velocity().ApproxEqualThreshold(wantMotion, 1e-12) {
 					t.Errorf("combined hits: health=%v motion=%v, want 13 and %v", victim.Health(), victim.Velocity(), wantMotion)
 				}

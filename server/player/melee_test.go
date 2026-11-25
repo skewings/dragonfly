@@ -27,7 +27,7 @@ func TestMotionOnlyMeleeSkipsAttackSideEffects(t *testing.T) {
 		if victim.Health() != 20 || owner.Health() != 20 || victim.Absorption() != 5 || victim.OnFireDuration() != 0 || main.Durability() != weapon.Durability() || victim.Armour().Chestplate().Durability() != armour.Durability() || h.hurtCalls != 0 {
 			t.Fatal("motion-only melee triggered damage, durability, thorns or fire")
 		}
-		if !victim.Velocity().ApproxEqualThreshold(mgl64.Vec3{0, 0.4, 0.4}, 1e-12) {
+		if !victim.Velocity().ApproxEqualThreshold(mgl64.Vec3{0, 0.3608, 0.45}, 1e-12) {
 			t.Fatalf("changed melee motion: %v", victim.Velocity())
 		}
 		if owner.AttackEntity(victim) {
@@ -66,49 +66,6 @@ func TestMotionOnlyMeleeSpawnProtectionAndExpiry(t *testing.T) {
 
 // Fixtures in this file are locked to PocketMine-MP commit
 // 6a7cc02e9dff59b69241aa0bcffdb9903ce86beb.
-
-func TestMeleeKnockBackMotion(t *testing.T) {
-	tests := []struct {
-		name             string
-		victim, attacker mgl64.Vec3
-		previous         mgl64.Vec3
-		force, limit     float64
-		want             mgl64.Vec3
-		wantMotion       bool
-	}{
-		{
-			name:   "cardinal",
-			victim: mgl64.Vec3{1, 64, 0}, attacker: mgl64.Vec3{0, 64, 0},
-			force: 0.4, limit: 0.4, want: mgl64.Vec3{0.4, 0.4, 0}, wantMotion: true,
-		},
-		{
-			name:   "diagonal with negative previous y",
-			victim: mgl64.Vec3{3, 64, 4}, attacker: mgl64.Vec3{0, 64, 0}, previous: mgl64.Vec3{0.2, -0.2, 0.4},
-			force: 0.4, limit: 0.4, want: mgl64.Vec3{0.34, 0.3, 0.52}, wantMotion: true,
-		},
-		{
-			name:   "positive previous y capped",
-			victim: mgl64.Vec3{0, 64, 2}, attacker: mgl64.Vec3{0, 64, 0}, previous: mgl64.Vec3{0, 0.8, 0},
-			force: 0.4, limit: 0.4, want: mgl64.Vec3{0, 0.4, 0.4}, wantMotion: true,
-		},
-		{
-			name:   "zero horizontal separation",
-			victim: mgl64.Vec3{2, 70, 3}, attacker: mgl64.Vec3{2, 64, 3}, previous: mgl64.Vec3{1, 1, 1},
-			force: 0.4, limit: 0.4, wantMotion: false,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, ok := meleeKnockBackMotion(tt.victim, tt.attacker, tt.previous, tt.force, tt.limit)
-			if ok != tt.wantMotion {
-				t.Fatalf("motion availability: got %v, want %v", ok, tt.wantMotion)
-			}
-			if ok && !got.ApproxEqualThreshold(tt.want, 1e-12) {
-				t.Fatalf("motion: got %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
 
 func TestDirectMeleeGate(t *testing.T) {
 	state := newDirectMeleeState(false)
